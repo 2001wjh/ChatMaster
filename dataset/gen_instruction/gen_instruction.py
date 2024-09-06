@@ -50,7 +50,7 @@ def chat(user_input):
     return response
 
 if __name__ == "__main__":
-    os.environ["no_proxy"] = "localhost,127.0.0.1,::1"
+    # os.environ["no_proxy"] = "localhost,127.0.0.1,::1"
 
     # 加载环境变量
     _ = load_dotenv(find_dotenv())
