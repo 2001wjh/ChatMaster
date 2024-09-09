@@ -31,7 +31,8 @@ def read_system_prompt(file_path):
 # 定义处理聊天输入的函数
 def chat(user_input):
     # 指定系统提示文件的路径
-    PROMPT_FILE_ROOT = r"../gen_prompts/script.txt"
+    PROMPT_FILE_ROOT = r"../prompt_template/friends.txt"
+    PROMPT_FILE_ROOT = r"../prompt_template/the_big_bang_theory.txt"
 
     # 读取系统提示内容
     system_prompt = read_system_prompt(PROMPT_FILE_ROOT)
