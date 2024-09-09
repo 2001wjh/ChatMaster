@@ -19,6 +19,7 @@ def convert_to_xtuner_format(data):
 
         # 构建conversation部分
         conversation = []
+        num = 0
         
         # 添加对话的每一轮
         for dialogue in item["dialogues"]:
@@ -26,11 +27,19 @@ def convert_to_xtuner_format(data):
             text = dialogue["text"]
             
             # 将每个角色的对话填入conversation中
-            conversation.append({
-                "system": system,  # 拼接好的system字段
-                "input": character,  # 角色名作为input
-                "output": text  # 角色的文本作为output
-            })
+            if num == 0:
+                num += 1
+                conversation.append({
+                    "system": system,
+                    "input": character,  # 角色名作为input
+                    "output": text  # 角色的文本作为output
+                })
+            else:
+                conversation.append({
+                    "input": character,  # 角色名作为input
+                    "output": text  # 角色的文本作为output
+                })
+       
         
         # 将conversation添加到xtuner_data
         xtuner_data.append({
