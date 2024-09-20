@@ -1,5 +1,5 @@
 from openai import OpenAI
-import streamlit as st
+import interface.streamlit as st
 
 # 设置页面的宽度和基础样式
 st.set_page_config(page_title="ChatMaster", layout="wide")
@@ -35,7 +35,7 @@ with st.sidebar:
 if interaction_mode == "口语交流":
     # 显示数字人图片，准备用于口语交流
     # st.image("./assert/image/数字人.png", caption="准备开始口语交流", use_column_width=True)
-    st.image("./assert/image/数字人.png", caption="准备开始口语交流", width=800)
+    st.image("../assert/image/数字人.png", caption="准备开始口语交流", width=800)
     
     # 这里你可以集成一个语音输入功能
     st.write("请使用语音对话功能（未来可添加语音识别接口）。")
