@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 # 导入路由
-from server.rag_service.router import qa_router, document_router, knowledge_base_router, scene_router
+from server.rag_service.router import qa_router, document_router, knowledge_base_router, scene_router, retrieval_router
 
 # 设置日志
 logging.basicConfig(
@@ -45,6 +45,7 @@ app.include_router(qa_router.router, prefix="/api/qa", tags=["问答服务"])
 app.include_router(document_router.router, prefix="/api/document", tags=["文档服务"])
 app.include_router(knowledge_base_router.router, prefix="/api/kb", tags=["知识库服务"])
 app.include_router(scene_router.router, prefix="/api/scene", tags=["场景服务"])
+app.include_router(retrieval_router.router, prefix="/api/retrieval", tags=["检索服务"])
 
 # 健康检查
 @app.get("/health", tags=["健康检查"])

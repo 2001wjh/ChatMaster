@@ -530,7 +530,8 @@ class IndexService:
              index_name: str, 
              query: str, 
              top_k: int = 5, 
-             search_type: str = "hybrid") -> List[Dict[str, Any]]:
+             search_type: str = "hybrid",
+             filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
         搜索索引
         
@@ -539,6 +540,7 @@ class IndexService:
             query: 查询字符串
             top_k: 返回结果数量
             search_type: 搜索类型 (vector, keyword, hybrid)
+            filters: 过滤条件
             
         Returns:
             搜索结果列表
@@ -557,49 +559,23 @@ class IndexService:
             
             # 向量搜索
             if search_type in ["vector", "hybrid"]:
-                vector_results = vectorstore.similarity_search_with_score(query, k=top_k * 2)
-                
-                for doc, score in vector_results:
-                    # 转换分数到0-1范围（FAISS距离是越小越好）
-                    similarity = 1.0 / (1.0 + score)
-                    
-                    results.append({
-                        "content": doc.page_content,
-                        "metadata": doc.metadata,
-                        "score": similarity,
-                        "source": "vector"
-                    })
+                vector_results = self.vector_search(
+                    index_name=index_name,
+                    query=query,
+                    top_k=top_k * 2 if search_type == "hybrid" else top_k,
+                    filters=filters
+                )
+                results.extend(vector_results)
             
             # 关键词搜索
             if search_type in ["keyword", "hybrid"] and self.enable_advanced_features:
-                # 简单关键词匹配实现，实际项目可能使用更复杂的算法
-                document_dir = index_dir / "documents"
-                keyword_results = []
-                
-                # 提取查询中的关键词
-                keywords = set(re.findall(r'\w+', query.lower()))
-                
-                for doc_path in document_dir.glob("*.json"):
-                    with open(doc_path, "r") as f:
-                        doc_data = json.load(f)
-                        
-                        for chunk in doc_data["chunks"]:
-                            content = chunk["content"].lower()
-                            
-                            # 计算关键词匹配度
-                            matched_keywords = sum(1 for kw in keywords if kw in content)
-                            if matched_keywords > 0:
-                                score = matched_keywords / len(keywords)
-                                
-                                keyword_results.append({
-                                    "content": chunk["content"],
-                                    "metadata": chunk["metadata"],
-                                    "score": score,
-                                    "source": "keyword"
-                                })
-                
-                # 添加关键词搜索结果
-                results.extend(sorted(keyword_results, key=lambda x: x["score"], reverse=True)[:top_k])
+                keyword_results = self.keyword_search(
+                    index_name=index_name,
+                    query=query,
+                    top_k=top_k * 2 if search_type == "hybrid" else top_k,
+                    filters=filters
+                )
+                results.extend(keyword_results)
             
             # 结果排序和去重
             seen_chunks = set()
@@ -620,6 +596,269 @@ class IndexService:
             logger.error(f"搜索失败: {str(e)}")
             raise RuntimeError(f"搜索失败: {str(e)}")
     
+    def vector_search(self, 
+                      index_name: str, 
+                      query: str, 
+                      top_k: int = 5,
+                      filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """
+        向量搜索
+        
+        使用语义相似度进行搜索
+        
+        Args:
+            index_name: 索引名称
+            query: 查询字符串
+            top_k: 返回结果数量
+            filters: 过滤条件
+            
+        Returns:
+            搜索结果列表
+        """
+        try:
+            # 验证索引是否存在
+            index_dir = self._get_index_dir(index_name)
+            if not index_dir.exists():
+                raise ValueError(f"索引 {index_name} 不存在")
+                
+            # 加载向量存储
+            vectorstore = self._load_vectorstore(index_name)
+            if not vectorstore:
+                return []
+            
+            # 提取过滤函数
+            filter_function = None
+            if filters:
+                filter_function = self._build_filter_function(filters)
+            
+            # 执行向量搜索
+            vector_results = vectorstore.similarity_search_with_score(
+                query, 
+                k=top_k,
+                filter=filter_function
+            )
+            
+            results = []
+            for doc, score in vector_results:
+                # 转换分数到0-1范围（FAISS距离是越小越好）
+                similarity = 1.0 / (1.0 + score)
+                
+                # 生成唯一的文档ID
+                document_id = doc.metadata.get("chunk_id", str(uuid.uuid4()))
+                
+                results.append({
+                    "document_id": document_id,
+                    "content": doc.page_content,
+                    "metadata": doc.metadata,
+                    "score": similarity,
+                    "search_type": "vector"
+                })
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"向量搜索失败: {str(e)}")
+            raise RuntimeError(f"向量搜索失败: {str(e)}")
+    
+    def keyword_search(self, 
+                       index_name: str, 
+                       query: str, 
+                       top_k: int = 5,
+                       filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """
+        关键词搜索
+        
+        使用关键词匹配进行搜索
+        
+        Args:
+            index_name: 索引名称
+            query: 查询字符串
+            top_k: 返回结果数量
+            filters: 过滤条件
+            
+        Returns:
+            搜索结果列表
+        """
+        try:
+            if not self.enable_advanced_features:
+                return []
+                
+            # 验证索引是否存在
+            index_dir = self._get_index_dir(index_name)
+            if not index_dir.exists():
+                raise ValueError(f"索引 {index_name} 不存在")
+            
+            # 提取查询中的关键词
+            keywords = set(re.findall(r'\w+', query.lower()))
+            if not keywords:
+                return []
+            
+            document_dir = index_dir / "documents"
+            keyword_results = []
+            
+            # 遍历所有文档
+            for doc_path in document_dir.glob("*.json"):
+                with open(doc_path, "r") as f:
+                    doc_data = json.load(f)
+                    
+                    for chunk in doc_data["chunks"]:
+                        content = chunk["content"].lower()
+                        metadata = chunk["metadata"]
+                        
+                        # 应用过滤器
+                        if filters and not self._apply_filters(metadata, filters):
+                            continue
+                        
+                        # 计算关键词匹配
+                        matches = []
+                        for keyword in keywords:
+                            # 使用正则表达式查找完整单词匹配
+                            pattern = r'\b' + re.escape(keyword) + r'\b'
+                            for match in re.finditer(pattern, content):
+                                start, end = match.span()
+                                matched_text = content[start:end]
+                                
+                                matches.append({
+                                    "keyword": keyword,
+                                    "text": matched_text,
+                                    "position": {"start": start, "end": end}
+                                })
+                        
+                        # 如果有匹配项
+                        if matches:
+                            # 计算匹配分数
+                            matched_keywords = len(set(match["keyword"] for match in matches))
+                            score = matched_keywords / len(keywords)
+                            
+                            # 生成唯一的文档ID
+                            document_id = metadata.get("chunk_id", str(uuid.uuid4()))
+                            
+                            keyword_results.append({
+                                "document_id": document_id,
+                                "content": chunk["content"],
+                                "metadata": metadata,
+                                "score": score,
+                                "keyword_matches": matches,
+                                "search_type": "keyword"
+                            })
+            
+            # 排序并返回结果
+            sorted_results = sorted(keyword_results, key=lambda x: x["score"], reverse=True)
+            return sorted_results[:top_k]
+            
+        except Exception as e:
+            logger.error(f"关键词搜索失败: {str(e)}")
+            raise RuntimeError(f"关键词搜索失败: {str(e)}")
+    
+    def _build_filter_function(self, filters: Dict[str, Any]) -> callable:
+        """
+        构建过滤函数
+        
+        用于向量存储的过滤器
+        
+        Args:
+            filters: 过滤条件
+            
+        Returns:
+            过滤函数
+        """
+        def filter_function(metadata: Dict[str, Any]) -> bool:
+            return self._apply_filters(metadata, filters)
+        
+        return filter_function
+    
+    def _apply_filters(self, metadata: Dict[str, Any], filters: Dict[str, Any]) -> bool:
+        """
+        应用过滤条件
+        
+        检查元数据是否满足过滤条件
+        
+        Args:
+            metadata: 文档元数据
+            filters: 过滤条件
+            
+        Returns:
+            是否匹配
+        """
+        if not filters:
+            return True
+            
+        # 应用时间范围过滤
+        if "time_range" in filters and filters["time_range"]:
+            # 检查是否有时间相关字段
+            if "date" not in metadata and "created_time" not in metadata:
+                return False
+                
+            # 获取文档时间
+            doc_time = metadata.get("date") or metadata.get("created_time")
+            if not doc_time:
+                return False
+                
+            # 检查时间范围匹配
+            matched = False
+            for time_expr in filters["time_range"]:
+                # 简单实现，实际项目可能需要更复杂的时间解析
+                if time_expr.lower() in doc_time.lower():
+                    matched = True
+                    break
+                    
+            if not matched:
+                return False
+        
+        # 应用作者过滤
+        if "author" in filters and filters["author"]:
+            if "author" not in metadata:
+                return False
+                
+            author = metadata["author"]
+            matched = False
+            for author_filter in filters["author"]:
+                if author_filter.lower() in author.lower():
+                    matched = True
+                    break
+                    
+            if not matched:
+                return False
+        
+        # 应用位置过滤
+        if "location" in filters and filters["location"]:
+            # 检查是否有位置相关字段
+            location_fields = ["location", "place", "region", "country"]
+            found = False
+            
+            for field in location_fields:
+                if field in metadata:
+                    found = True
+                    value = metadata[field]
+                    
+                    matched = False
+                    for loc_filter in filters["location"]:
+                        if loc_filter.lower() in value.lower():
+                            matched = True
+                            break
+                            
+                    if matched:
+                        break
+            
+            if not found or not matched:
+                return False
+        
+        # 如果所有过滤条件都通过
+        return True
+    
+    def index_exists(self, index_name: str) -> bool:
+        """
+        检查索引是否存在
+        
+        Args:
+            index_name: 索引名称
+            
+        Returns:
+            是否存在
+        """
+        index_dir = self._get_index_dir(index_name)
+        return index_dir.exists()
+
     def get_index_statistics(self, index_name: str) -> Dict[str, Any]:
         """
         获取索引统计信息

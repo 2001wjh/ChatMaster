@@ -19,8 +19,12 @@ from rag_components import (
     render_document_management, 
     get_knowledge_bases,
     rag_query,
-    display_rag_result
+    display_rag_result,
+    render_enhanced_rag_interface
 )
+
+# 导入性能仪表盘
+from retrieval_dashboard import main as retrieval_dashboard_main
 
 # 配置页面
 st.set_page_config(
@@ -130,6 +134,8 @@ def render_sidebar():
     st.sidebar.subheader("功能选择")
     view_options = {
         "chat": "对话练习",
+        "enhanced_retrieval": "增强型检索",
+        "performance_dashboard": "性能仪表盘",
         "knowledge_base_management": "知识库管理",
         "document_management": "文档管理 (需先选择知识库)"
     }
@@ -442,24 +448,48 @@ def render_text_chat():
 def main():
     # 加载会话历史
     if not st.session_state.sessions:
-        st.session_state.sessions = load_session_history()
+        loaded_sessions = load_session_history()
+        if loaded_sessions:
+            st.session_state.sessions = loaded_sessions
     
     # 渲染侧边栏
     render_sidebar()
     
-    # 根据当前视图渲染主界面
+    # 根据当前视图渲染页面
     if st.session_state.current_view == "chat":
-        if st.session_state.interaction_mode == "text":
-            render_text_chat()
-        else:
+        # 渲染聊天页面
+        st.title("ChatMaster 英语对话练习")
+        
+        # 根据交互模式渲染不同的界面
+        if st.session_state.interaction_mode == "speech":
             render_speech_interaction()
+        else:
+            render_text_chat()
+    
+    elif st.session_state.current_view == "enhanced_retrieval":
+        # 渲染增强型检索界面
+        render_enhanced_rag_interface()
+        
+    elif st.session_state.current_view == "performance_dashboard":
+        # 渲染性能仪表盘
+        retrieval_dashboard_main()
+            
     elif st.session_state.current_view == "knowledge_base_management":
+        # 渲染知识库管理页面
         render_knowledge_base_management()
-    elif st.session_state.current_view == "document_management" and st.session_state.selected_kb_id:
-        render_document_management(
-            st.session_state.selected_kb_id, 
-            st.session_state.selected_kb_name
-        )
+        
+    elif st.session_state.current_view == "document_management":
+        # 渲染文档管理页面
+        if st.session_state.selected_kb_id and st.session_state.selected_kb_name:
+            render_document_management(
+                kb_id=st.session_state.selected_kb_id,
+                kb_name=st.session_state.selected_kb_name
+            )
+        else:
+            st.warning("请先选择一个知识库")
+            if st.button("前往知识库管理"):
+                st.session_state.current_view = "knowledge_base_management"
+                st.experimental_rerun()
 
 if __name__ == "__main__":
     main()

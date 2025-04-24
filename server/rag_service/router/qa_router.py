@@ -12,7 +12,9 @@ from server.rag_service.schemas.qa import (
     QuestionRequest, 
     QuestionResponse, 
     FeedbackRequest, 
-    RecommendedQuestionResponse
+    RecommendedQuestionResponse,
+    QueryAnalysisRequest,
+    QueryAnalysisResponse
 )
 from server.rag_service.service import init_rag_service
 
@@ -47,6 +49,7 @@ async def ask_question(
         qa_service = services["qa_service"]
         retrieval_service = services["retrieval_service"]
         index_service = services["index_service"]
+        text_processing_service = services["text_processing_service"]
         
         # 生成对话ID
         conversation_id = request.conversation_id or str(uuid.uuid4())
@@ -54,14 +57,62 @@ async def ask_question(
         # 获取查询历史(如果有)
         previous_queries = qa_service.query_history.get(conversation_id, [])
         
+        # 识别意图和实体
+        intent = None
+        intent_confidence = 0.0
+        entities = []
+        
+        try:
+            # 意图识别
+            intent, intent_confidence = text_processing_service._recognize_intent(request.question)
+            logger.info(f"查询意图: {intent}, 置信度: {intent_confidence}")
+            
+            # 实体提取
+            entities = text_processing_service._extract_entities(request.question)
+            logger.info(f"提取实体: {entities}")
+            
+        except Exception as e:
+            logger.warning(f"意图和实体识别失败: {str(e)}")
+        
+        # 构建过滤条件
+        filters = {}
+        if entities:
+            for entity in entities:
+                if entity["type"] == "TIME" and "time" in request.filters:
+                    if "time_range" not in filters:
+                        filters["time_range"] = []
+                    filters["time_range"].append(entity["text"])
+                elif entity["type"] == "PERSON" and "author" in request.filters:
+                    if "author" not in filters:
+                        filters["author"] = []
+                    filters["author"].append(entity["text"])
+                elif entity["type"] == "LOCATION" and "location" in request.filters:
+                    if "location" not in filters:
+                        filters["location"] = []
+                    filters["location"].append(entity["text"])
+        
         # 执行检索
+        search_type = request.search_type
+        
+        # 根据意图调整检索类型（如果用户未明确指定）
+        if intent and (search_type == "auto" or not search_type):
+            if intent == "command":
+                search_type = "keyword"
+            elif intent == "learning_question":
+                search_type = "hybrid"
+            elif intent == "information_seeking":
+                search_type = "vector"
+            else:
+                search_type = "hybrid"  # 默认使用混合检索
+        
         search_results = retrieval_service.retrieve(
             query=request.question,
             index_service=index_service,
             index_name=request.knowledge_base_id,
             top_k=request.top_k,
-            search_type=request.search_type,
-            previous_queries=previous_queries
+            search_type=search_type,
+            previous_queries=previous_queries,
+            filters=filters
         )
         
         # 更新查询历史
@@ -70,24 +121,34 @@ async def ask_question(
         qa_service.query_history[conversation_id].append(request.question)
         
         # 生成回答
-        answer, sources = qa_service.answer(
+        result = qa_service.answer(
             query=request.question,
             context=search_results,
             conversation_id=conversation_id,
-            search_type=request.search_type
+            language=request.language,
+            role=request.role,
+            scene=request.scene,
+            retrieval_service=retrieval_service,
+            index_service=index_service,
+            index_name=request.knowledge_base_id
         )
         
-        # 生成推荐问题
-        recommended_questions = qa_service.generate_recommended_questions(
-            query=request.question,
-            context=search_results
-        )
-        
+        # 获取意图和实体（如果QA服务没有返回）
+        if "intent" not in result or not result["intent"]:
+            result["intent"] = intent
+        if "entities" not in result or not result["entities"]:
+            result["entities"] = entities
+            
         return QuestionResponse(
-            answer=answer,
+            answer=result["answer"],
             conversation_id=conversation_id,
-            sources=sources,
-            recommended_questions=recommended_questions
+            sources=result.get("retrieval_results", []),
+            recommended_questions=result.get("recommended_questions", []),
+            thinking=result.get("thinking", ""),
+            intent=result.get("intent", ""),
+            intent_confidence=intent_confidence,
+            entities=result.get("entities", []),
+            language=result.get("language", request.language)
         )
         
     except Exception as e:
@@ -178,8 +239,9 @@ async def get_recommended_questions(
         
         # 生成推荐问题
         recommended_questions = qa_service.generate_recommended_questions(
-            query=query,
-            context=search_results,
+            user_question=query,
+            model_answer="",
+            retrieved_content=search_results,
             num_questions=top_k
         )
         
@@ -189,4 +251,52 @@ async def get_recommended_questions(
         
     except Exception as e:
         logger.error(f"获取推荐问题失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取推荐问题失败: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"获取推荐问题失败: {str(e)}")
+
+
+@router.post("/analyze_query", response_model=QueryAnalysisResponse)
+async def analyze_query(
+    request: QueryAnalysisRequest,
+    services=Depends(get_service)
+):
+    """
+    分析查询
+    
+    分析用户查询的意图和实体
+    """
+    try:
+        text_processing_service = services["text_processing_service"]
+        
+        # 意图识别
+        intent, confidence = text_processing_service._recognize_intent(request.query)
+        
+        # 实体提取
+        entities = text_processing_service._extract_entities(request.query)
+        
+        # 检查是否为问题
+        is_question = text_processing_service._is_question(request.query)
+        
+        # 提取关键词
+        keywords = []
+        if hasattr(text_processing_service, "_extract_keywords"):
+            keywords = text_processing_service._extract_keywords(
+                text=request.query,
+                num_keywords=5
+            )
+        
+        # 检测语言
+        language = text_processing_service._detect_language(request.query)
+        
+        return QueryAnalysisResponse(
+            query=request.query,
+            intent=intent,
+            intent_confidence=confidence,
+            entities=entities,
+            is_question=is_question,
+            keywords=keywords,
+            language=language
+        )
+        
+    except Exception as e:
+        logger.error(f"分析查询失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"分析查询失败: {str(e)}") 

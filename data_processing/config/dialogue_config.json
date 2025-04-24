@@ -1,0 +1,61 @@
+{
+    "text_processing": {
+        "min_length": 10,
+        "max_length": 1000,
+        "enable_gpt4_rules": true,
+        "quality_threshold": 0.7,
+        "min_tokens": 5,
+        "max_tokens": 200
+    },
+    "filtering": {
+        "stopwords_file": "data/stopwords.txt",
+        "sensitive_words_file": "data/sensitive_words.txt",
+        "enable_sensitive_check": true,
+        "enable_stopword_filtering": true,
+        "enable_quality_filtering": true
+    },
+    "retrieval": {
+        "bm25": {
+            "enabled": true,
+            "min_score": 0.5,
+            "max_results": 10,
+            "b": 0.75,
+            "k1": 1.5
+        },
+        "vector": {
+            "enabled": true,
+            "model_name": "paraphrase-multilingual-MiniLM-L12-v2",
+            "similarity_threshold": 0.85,
+            "batch_size": 32
+        },
+        "hybrid": {
+            "enabled": true,
+            "bm25_weight": 0.4,
+            "vector_weight": 0.6
+        }
+    },
+    "output": {
+        "format": "json",
+        "include_metadata": true,
+        "include_scores": true,
+        "include_raw_text": false,
+        "export_dir": "data/processed/"
+    },
+    "logging": {
+        "level": "INFO",
+        "file": "logs/dialogue_processor.log",
+        "console": true
+    },
+    "database": {
+        "enabled": true,
+        "connection_string": "sqlite:///data/dialogues.db",
+        "table_name": "processed_dialogues",
+        "batch_size": 100
+    },
+    "advanced": {
+        "use_gpu": false,
+        "num_workers": 4,
+        "cache_embeddings": true,
+        "cache_dir": "data/cache/"
+    }
+} 

@@ -143,13 +143,61 @@ class QAService:
             self.query_history[conversation_id].append(query)
             previous_queries = self.query_history[conversation_id]
             
+            # 识别意图和实体
+            intent = None
+            entities = []
+            try:
+                # 导入文本处理服务
+                from server.rag_service.utils.text_processing import TextProcessingService
+                text_processing_service = TextProcessingService({})
+                
+                # 意图识别
+                intent, confidence = text_processing_service._recognize_intent(query)
+                logger.info(f"查询意图: {intent}, 置信度: {confidence}")
+                
+                # 实体提取
+                entities = text_processing_service._extract_entities(query)
+                logger.info(f"提取实体: {entities}")
+                
+                # 检测语言
+                detected_language = text_processing_service._detect_language(query)
+                if detected_language and detected_language != language:
+                    language = detected_language
+                    logger.info(f"检测到语言: {language}，调整响应语言")
+            except Exception as e:
+                logger.warning(f"意图和实体识别失败: {str(e)}")
+            
             # 执行混合检索（如果提供了检索服务和索引服务）
             enhanced_context = context
             retrieval_results = []
             if retrieval_service and index_service and index_name:
                 try:
-                    # 执行混合检索
-                    search_type = "hybrid" if self.use_hybrid_search else "vector"
+                    # 根据意图选择检索类型
+                    search_type = "hybrid"  # 默认值
+                    
+                    if intent == "command":
+                        search_type = "keyword"  # 命令类查询使用关键词搜索
+                    elif intent == "learning_question":
+                        search_type = "hybrid"   # 学习类问题使用混合搜索
+                    elif intent == "information_seeking":
+                        search_type = "vector"   # 信息查询使用向量搜索
+                    
+                    # 根据实体构建过滤条件
+                    filters = {}
+                    if entities:
+                        for entity in entities:
+                            if entity["type"] == "TIME":
+                                if "time_range" not in filters:
+                                    filters["time_range"] = []
+                                filters["time_range"].append(entity["text"])
+                            elif entity["type"] == "PERSON":
+                                if "author" not in filters:
+                                    filters["author"] = []
+                                filters["author"].append(entity["text"])
+                            elif entity["type"] == "LOCATION":
+                                if "location" not in filters:
+                                    filters["location"] = []
+                                filters["location"].append(entity["text"])
                     
                     # 获取检索结果
                     retrieval_results = retrieval_service.retrieve(
@@ -158,7 +206,8 @@ class QAService:
                         index_name=index_name,
                         top_k=self.top_k,
                         search_type=search_type,
-                        previous_queries=previous_queries if self.enable_context_optimization else None
+                        previous_queries=previous_queries if self.enable_context_optimization else None,
+                        filters=filters
                     )
                     
                     # 如果原始上下文为空，使用检索结果
@@ -182,6 +231,17 @@ class QAService:
             
             # 准备系统提示
             system_prompt = self._generate_system_prompt(role, language)
+            
+            # 根据意图调整系统提示
+            if intent:
+                if intent == "command":
+                    system_prompt += "\n\nThe user is trying to issue a command. Focus on providing clear instructions or responding to the command."
+                elif intent == "learning_question":
+                    system_prompt += "\n\nThe user is asking a learning-oriented question. Focus on providing educational content and explanations."
+                elif intent == "information_seeking":
+                    system_prompt += "\n\nThe user is seeking specific information. Focus on providing accurate and concise facts."
+                elif intent == "casual_chat":
+                    system_prompt += "\n\nThe user is engaging in casual conversation. Maintain a friendly and conversational tone."
             
             # 准备消息列表
             messages = [
@@ -216,10 +276,23 @@ class QAService:
                         meta = item["metadata"]
                         if "filename" in meta:
                             context_text += f"Source: {meta['filename']}\n"
-                            
+                    
+                    # 添加关键词匹配信息（如果有）
+                    if "keyword_matches" in item and item["keyword_matches"]:
+                        matches = item["keyword_matches"]
+                        match_text = "Keywords: " + ", ".join([m["text"] for m in matches])
+                        context_text += f"{match_text}\n"
+                        
                     context_text += "\n"
                 
                 messages.append({"role": "system", "content": context_text})
+            
+            # 添加提取的实体信息
+            if entities:
+                entities_text = "Detected entities in the query:\n"
+                for entity in entities:
+                    entities_text += f"- {entity['text']} ({entity['type']})\n"
+                messages.append({"role": "system", "content": entities_text})
             
             # 添加对话历史
             for message in conversation_history:
@@ -287,7 +360,10 @@ class QAService:
                 "thinking": thinking,
                 "conversation_id": conversation_id,
                 "retrieval_results": retrieval_results,
-                "recommended_questions": recommended_questions
+                "recommended_questions": recommended_questions,
+                "intent": intent,
+                "entities": entities,
+                "language": language
             }
             
         except Exception as e:
