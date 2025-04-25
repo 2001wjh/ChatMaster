@@ -2,7 +2,7 @@
 
 ## 项目简介
 
-ChatMaster是基于上海人工智能实验室全套AI链路（模型、算力平台InternStudio、微调框架XTuner、RAG框架、评测框架OpenCompass）实现的场景语音对话系统。本项目旨在帮助用户无痛练习日常英语口语和对话技能，从简单到困难循序渐进提升能力。
+ChatMaster 是一个基于场景的多轮语音对话系统。本项目旨在帮助用户无痛练习日常英语口语和对话技能，从简单到困难循序渐进提升能力。
 
 ## 核心功能
 
@@ -177,15 +177,29 @@ streamlit run app.py
 - **自定义主题**：针对特定行业或场景的专业英语训练
 - **进度追踪**：记录用户练习历史和进步情况
 
-## 贡献者
 
-- wjh2001
+## 💕 致谢
 
-## 许可证
+- [InternLM](https://github.com/InternLM/InternLM)
+- [xtuner](https://github.com/InternLM/xtuner)
+- [LMDeploy](https://github.com/InternLM/LMDeploy)
+- [lagent](https://github.com/InternLM/lagent)
 
-本项目遵循MIT开源许可证
+感谢上海人工智能实验室推出的书生·浦语大模型实战营，为我的项目提供宝贵的技术指导和强大的算力支持。
 
-## 联系方式
+## 🎫 开源许可证
 
-- 邮箱：2770629756@qq.com
-- 项目地址：https://github.com/2001wjh/ChatMaste
+该项目采用 [Apache License 2.0 开源许可证](https://github.com/PeterH0323/Streamer-Sales/LICENSE) 同时，请遵守所使用的模型与数据集的许可证。
+
+## 🔗 引用
+
+如果本项目对您有所帮助，请使用以下格式引用：
+
+```bibtex
+@misc{ChatMaster,
+    title={ChatMaster},
+    author={wjh2001},
+    url={https://github.com/wjh2001/ChatMaster},
+    year={2024}
+}
+```
