@@ -185,7 +185,7 @@ streamlit run app.py
 - [LMDeploy](https://github.com/InternLM/LMDeploy)
 - [lagent](https://github.com/InternLM/lagent)
 
-感谢上海人工智能实验室推出的书生·浦语大模型实战营，为我的项目提供宝贵的技术指导和强大的算力支持。
+感谢上海人工智能实验室，为我的项目提供宝贵的技术指导和强大的算力支持。
 
 ## 🎫 开源许可证
 
